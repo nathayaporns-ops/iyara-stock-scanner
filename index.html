@@ -1,0 +1,102 @@
+<!doctype html>
+<html lang="th">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#0f171b">
+<title>IYARA Location Scanner</title>
+<script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
+<style>
+:root{--bg:#10181c;--card:#2e4048;--cyan:#2ef4f0;--green:#76ff6a;--text:#f8fbfc;--muted:#adc1c9;--red:#ff6a78}
+*{box-sizing:border-box}
+html,body{margin:0;min-height:100%;background:linear-gradient(145deg,#11191d,#0b1114);color:var(--text);font-family:system-ui,-apple-system,"Segoe UI",sans-serif}
+.app{max-width:720px;margin:auto;padding:16px}
+.card{background:linear-gradient(145deg,#354a54,#26363d);border:1px solid rgba(46,244,240,.38);border-radius:20px;padding:16px;box-shadow:0 0 24px rgba(46,244,240,.08)}
+h1{font-size:22px;margin:0 0 6px}
+.muted{color:var(--muted);font-size:13px}
+.target{font-size:34px;font-weight:950;color:var(--cyan);margin:10px 0 14px}
+#reader{overflow:hidden;border-radius:16px;background:#0c1519}
+.status{margin-top:12px;padding:12px;border-radius:13px;background:#1d2b31;color:#d9eef2}
+.ok{border:1px solid rgba(118,255,106,.55);color:var(--green)}
+.bad{border:1px solid rgba(255,106,120,.55);color:#ff98a2}
+button{width:100%;min-height:48px;border:0;border-radius:13px;font-weight:900;margin-top:10px}
+.cancel{background:#26363d;color:#fff;border:1px solid #52717d}
+</style>
+</head>
+<body>
+<div class="app">
+  <div class="card">
+    <h1>📷 IYARA Location Scanner</h1>
+    <div class="muted">สแกนรหัส Location ให้ตรงกับการ์ดที่เลือก</div>
+    <div id="target" class="target">-</div>
+    <div id="reader"></div>
+    <div id="status" class="status">กำลังเปิดกล้อง...</div>
+    <button class="cancel" onclick="cancelScan()">ยกเลิก / กลับ</button>
+  </div>
+</div>
+<script>
+const qs=new URLSearchParams(location.search);
+const TARGET=(qs.get('target')||'').trim().toUpperCase();
+const RETURN_URL=(qs.get('return')||'').trim();
+const NONCE=(qs.get('nonce')||'').trim();
+document.getElementById('target').textContent=TARGET||'LOCATION';
+let finished=false;
+let scanner=null;
+function setStatus(text,cls=''){
+  const el=document.getElementById('status');
+  el.textContent=text;
+  el.className='status'+(cls?' '+cls:'');
+}
+function deliver(raw){
+  if(finished) return;
+  const value=String(raw||'').trim().toUpperCase();
+  if(!value) return;
+  if(TARGET && value!==TARGET){
+    setStatus(`พบ ${value} — ไม่ตรงกับ ${TARGET}`,'bad');
+    navigator.vibrate?.([80,40,80]);
+    return;
+  }
+  finished=true;
+  setStatus(`✓ พบ ${value}`,'ok');
+  navigator.vibrate?.([100,50,100]);
+  try{
+    if(window.opener && !window.opener.closed){
+      window.opener.postMessage({channel:'IYARA_EXTERNAL_SCANNER',value,nonce:NONCE},'*');
+      setTimeout(()=>window.close(),220);
+      return;
+    }
+  }catch(_){}
+  if(RETURN_URL){
+    const u=new URL(RETURN_URL);
+    u.searchParams.set('scan_location',value);
+    location.replace(u.toString());
+  }
+}
+async function start(){
+  if(typeof Html5Qrcode==='undefined'){
+    setStatus('โหลด Scanner library ไม่สำเร็จ','bad');
+    return;
+  }
+  scanner=new Html5Qrcode('reader',{verbose:false});
+  try{
+    await scanner.start(
+      {facingMode:'environment'},
+      {fps:12,qrbox:(vw,vh)=>{const w=Math.min(vw*0.86,440);return {width:w,height:Math.min(vh*0.42,180)};},aspectRatio:1.777778},
+      text=>deliver(text),
+      ()=>{}
+    );
+    setStatus(`พร้อมสแกน ${TARGET||'Location'}`);
+  }catch(e){
+    const msg=(e&&e.message)?e.message:String(e||'');
+    setStatus('เปิดกล้องไม่ได้: '+msg,'bad');
+  }
+}
+async function cancelScan(){
+  try{if(scanner) await scanner.stop()}catch(_){}
+  try{if(window.opener&&!window.opener.closed){window.close();return}}catch(_){}
+  if(RETURN_URL) location.replace(RETURN_URL);
+}
+start();
+</script>
+</body>
+</html>
