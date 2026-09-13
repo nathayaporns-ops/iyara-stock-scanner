@@ -34,68 +34,104 @@ button{width:100%;min-height:48px;border:0;border-radius:13px;font-weight:900;ma
     <button class="cancel" onclick="cancelScan()">ยกเลิก / กลับ</button>
   </div>
 </div>
+
 <script>
 const qs=new URLSearchParams(location.search);
+const PURPOSE=(qs.get('purpose')||'location').trim().toLowerCase();
 const TARGET=(qs.get('target')||'').trim().toUpperCase();
 const RETURN_URL=(qs.get('return')||'').trim();
 const NONCE=(qs.get('nonce')||'').trim();
-document.getElementById('target').textContent=TARGET||'LOCATION';
+document.getElementById('target').textContent=PURPOSE==='product'?'SKU / BARCODE':(TARGET||'LOCATION');
+document.querySelector('.muted').textContent=PURPOSE==='product'?'สแกน Barcode / SKU ของสินค้า':'สแกนรหัส Location ให้ตรงกับการ์ดที่เลือก';
+
 let finished=false;
 let scanner=null;
+
 function setStatus(text,cls=''){
   const el=document.getElementById('status');
   el.textContent=text;
   el.className='status'+(cls?' '+cls:'');
 }
+
 function deliver(raw){
   if(finished) return;
   const value=String(raw||'').trim().toUpperCase();
   if(!value) return;
-  if(TARGET && value!==TARGET){
+
+  if(PURPOSE==='location' && TARGET && value!==TARGET){
     setStatus(`พบ ${value} — ไม่ตรงกับ ${TARGET}`,'bad');
     navigator.vibrate?.([80,40,80]);
     return;
   }
+
   finished=true;
   setStatus(`✓ พบ ${value}`,'ok');
   navigator.vibrate?.([100,50,100]);
+
   try{
     if(window.opener && !window.opener.closed){
-      window.opener.postMessage({channel:'IYARA_EXTERNAL_SCANNER',value,nonce:NONCE},'*');
+      window.opener.postMessage({
+        channel:'IYARA_EXTERNAL_SCANNER',
+        value,
+        nonce:NONCE,
+        purpose:PURPOSE
+      },'*');
       setTimeout(()=>window.close(),220);
       return;
     }
   }catch(_){}
+
   if(RETURN_URL){
     const u=new URL(RETURN_URL);
-    u.searchParams.set('scan_location',value);
+    u.searchParams.set(PURPOSE==='product'?'scan_product':'scan_location',value);
     location.replace(u.toString());
   }
 }
+
 async function start(){
   if(typeof Html5Qrcode==='undefined'){
     setStatus('โหลด Scanner library ไม่สำเร็จ','bad');
     return;
   }
-  scanner=new Html5Qrcode('reader',{verbose:false});
+
+  scanner=new Html5Qrcode('reader',{verbose:false,formatsToSupport:[
+    Html5QrcodeSupportedFormats.QR_CODE,
+    Html5QrcodeSupportedFormats.CODE_128,
+    Html5QrcodeSupportedFormats.CODE_39,
+    Html5QrcodeSupportedFormats.CODE_93,
+    Html5QrcodeSupportedFormats.EAN_13,
+    Html5QrcodeSupportedFormats.EAN_8,
+    Html5QrcodeSupportedFormats.UPC_A,
+    Html5QrcodeSupportedFormats.UPC_E,
+    Html5QrcodeSupportedFormats.ITF
+  ]});
   try{
     await scanner.start(
       {facingMode:'environment'},
-      {fps:12,qrbox:(vw,vh)=>{const w=Math.min(vw*0.86,440);return {width:w,height:Math.min(vh*0.42,180)};},aspectRatio:1.777778},
+      {
+        fps:12,
+        qrbox:(vw,vh)=>{
+          const w=Math.min(vw*0.86,440);
+          return {width:w,height:Math.min(vh*0.42,180)};
+        },
+        aspectRatio:1.777778
+      },
       text=>deliver(text),
       ()=>{}
     );
-    setStatus(`พร้อมสแกน ${TARGET||'Location'}`);
+    setStatus(PURPOSE==='product'?'พร้อมสแกน SKU / Barcode':`พร้อมสแกน ${TARGET||'Location'}`);
   }catch(e){
     const msg=(e&&e.message)?e.message:String(e||'');
     setStatus('เปิดกล้องไม่ได้: '+msg,'bad');
   }
 }
+
 async function cancelScan(){
   try{if(scanner) await scanner.stop()}catch(_){}
   try{if(window.opener&&!window.opener.closed){window.close();return}}catch(_){}
   if(RETURN_URL) location.replace(RETURN_URL);
 }
+
 start();
 </script>
 </body>
